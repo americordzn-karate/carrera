@@ -171,7 +171,19 @@
   }
   .gano .puntos-resultado{color:var(--ok-green);}
   .perdio .puntos-resultado{color:var(--dojo-red);}
-  .detalle-resultado{font-size:14px;opacity:.75;margin-bottom:20px;}
+  .detalle-resultado{font-size:14px;opacity:.75;margin-bottom:6px;}
+  #detalle-intentos{font-size:13px;opacity:.6;margin-bottom:18px;}
+  .grupo-botones-resultado{display:flex;flex-direction:column;gap:10px;}
+  #btn-reintentar{
+    appearance:none;border:2px solid var(--dojo-ink);
+    background:transparent;color:var(--dojo-ink);
+    font-weight:700;font-size:15px;
+    padding:11px 30px;border-radius:30px;
+    width:100%;
+  }
+  #btn-reintentar:disabled{
+    border-color:#bbb;color:#bbb;
+  }
   #btn-volver{
     appearance:none;border:none;
     background:var(--dojo-ink);color:var(--dojo-paper);
@@ -234,7 +246,11 @@
     <div class="titulo-resultado" id="titulo-resultado">¡Ganaste!</div>
     <div class="puntos-resultado" id="puntos-resultado">+50 pts</div>
     <div class="detalle-resultado" id="detalle-resultado"></div>
-    <button id="btn-volver">Volver al portal</button>
+    <div class="detalle-resultado" id="detalle-intentos"></div>
+    <div class="grupo-botones-resultado">
+      <button id="btn-reintentar">Volver a correr</button>
+      <button id="btn-volver">Volver al portal</button>
+    </div>
   </div>
 </div>
 
@@ -276,6 +292,9 @@ function volverAlPortal(){
   window.location.href = base + '?' + params.toString();
 }
 document.getElementById('btn-volver').addEventListener('click', volverAlPortal);
+
+const elBtnReintentar  = document.getElementById('btn-reintentar');
+const elDetalleIntentos = document.getElementById('detalle-intentos');
 
 // ---------- 2. Referencias DOM ----------
 const elVideo         = document.getElementById('video');
@@ -394,7 +413,7 @@ const calibracion = {
   muestras: [],
   activa: false,
   tiempoInicio: 0,
-  duracionMs: 2500,
+  duracionMs: 4500,
   tobilloReposoY: null,
   umbralNormalizado: null
 };
@@ -404,7 +423,7 @@ const deteccion = {
   estado: 'ABAJO', // 'ABAJO' | 'ARRIBA'
   margenRetorno: 0.45, // fracción del umbral para permitir el regreso a ABAJO
   ySuavizada: null,
-  alphaSuavizado: 0.45 // filtro exponencial: reduce el ruido/temblor de la cámara
+  alphaSuavizado: 0.65 // más peso a la muestra actual: menos retraso, capta mejor los movimientos rápidos y leves
 };
 
 // Combina tobillo, talón y punta del pie derecho: usa el punto con mayor
@@ -444,7 +463,11 @@ function procesarCalibracion(landmarks){
   calibracion.muestras.push({ narizY: nariz.y, pieY: yPie });
 
   const transcurrido = performance.now() - calibracion.tiempoInicio;
-  if(transcurrido >= calibracion.duracionMs && calibracion.muestras.length >= 15){
+  const restanteSeg = Math.max(0, Math.ceil((calibracion.duracionMs - transcurrido) / 1000));
+  mostrarMensajeCentral('mensaje-calibracion',
+    `Colócate de pie, cuerpo completo visible en cámara.<br>Mantente quieto para calibrar… (${restanteSeg}s)`);
+
+  if(transcurrido >= calibracion.duracionMs && calibracion.muestras.length >= 25){
     finalizarCalibracion();
   }
 }
@@ -468,12 +491,12 @@ function finalizarCalibracion(){
   const alturaCuerpoNormalizada = Math.max(0.05, promPie - promNariz);
   calibracion.tobilloReposoY = promPie;
 
-  // 5 cm expresados como fracción normalizada de la imagen, escalados
-  // por la estatura real del jugador (dato enviado por el portal).
-  // Se aplica un piso mínimo para no quedar por debajo del ruido típico
-  // de la cámara en distancias de cuerpo completo.
-  const umbralCalculado = 5 * (alturaCuerpoNormalizada / datosJugador.estatura);
-  calibracion.umbralNormalizado = Math.max(umbralCalculado, 0.014);
+  // Distancia de referencia para considerar el pie "levantado". Se redujo
+  // frente a los 5 cm originales tras pruebas de campo: el movimiento real
+  // de la cámara amortigua y proyecta el desplazamiento, por lo que un
+  // valor más leve refleja mejor una elevación cómoda para el alumno.
+  const umbralCalculado = 3 * (alturaCuerpoNormalizada / datosJugador.estatura);
+  calibracion.umbralNormalizado = Math.max(umbralCalculado, 0.008);
 
   iniciarCuentaRegresiva();
 }
@@ -630,6 +653,7 @@ function finalizarCarrera(jugadorGano){
   estadoJuego = ESTADOS.FINALIZADO;
   clearInterval(idIntervaloAjusteConejo);
   if(idAnimacion) cancelAnimationFrame(idAnimacion);
+  controlAcceso.intentosEnEstaSesion += 1;
   beepFinal(jugadorGano);
   mostrarResultado(jugadorGano);
   enviarResultadoABD(jugadorGano);
@@ -659,8 +683,51 @@ function mostrarResultado(jugadorGano){
   elDetalle.textContent = jugadorGano
     ? `Completaste las 100 elevaciones antes que el conejo.`
     : `Alcanzaste ${Math.floor(juego.progresoJugador)}% del recorrido.`;
+
+  const restantes = intentosDisponiblesRestantes();
+  if(restantes > 0){
+    elBtnReintentar.disabled = false;
+    elBtnReintentar.textContent = 'Volver a correr';
+    elDetalleIntentos.textContent = `Te queda${restantes === 1 ? '' : 'n'} ${restantes} intento${restantes === 1 ? '' : 's'} hoy en este reto.`;
+  } else {
+    elBtnReintentar.disabled = true;
+    elBtnReintentar.textContent = 'Sin intentos disponibles';
+    elDetalleIntentos.textContent = 'Alcanzaste el máximo de intentos de hoy en este reto.';
+  }
+
   elModal.classList.add('visible');
 }
+
+function reiniciarJuego(){
+  elModal.classList.remove('visible');
+
+  // Reiniciar estado del jugador
+  juego.progresoJugador = 0;
+  juego.repeticiones = 0;
+  juego.progresoConejo = 0;
+  juego.velocidadConejo = 0;
+  juego.tiempoTotalConejo = 0;
+  juego.tiempoInicioCarrera = 0;
+  juego.ultimoAjusteConejo = 0;
+  juego.ultimoFrame = 0;
+  juego.finalizado = false;
+
+  deteccion.estado = 'ABAJO';
+  deteccion.ySuavizada = null;
+  calibracion.tobilloReposoY = null;
+  calibracion.umbralNormalizado = null;
+
+  actualizarHUD();
+  actualizarPosicionCorredor(elKarateka, 0);
+  actualizarPosicionCorredor(elConejo, 0);
+  elCronometro.textContent = '00:00';
+
+  iniciarCalibracion();
+}
+elBtnReintentar.addEventListener('click', () => {
+  if(elBtnReintentar.disabled) return;
+  reiniciarJuego();
+});
 
 // ---------- 10. Mensajes centrales ----------
 function mostrarMensajeCentral(clase, contenido){
@@ -677,8 +744,16 @@ const controlAcceso = {
   camaraLista: false,
   camaraConError: false,
   intentosVerificados: false,
-  limiteAlcanzado: false
+  limiteAlcanzado: false,
+  diarioPermitido: 999,
+  intentosPrevios: 0,       // intentos ya registrados hoy antes de abrir el reto
+  intentosEnEstaSesion: 0   // carreras jugadas desde que se abrió la página
 };
+
+function intentosDisponiblesRestantes(){
+  const usados = controlAcceso.intentosPrevios + controlAcceso.intentosEnEstaSesion;
+  return controlAcceso.diarioPermitido - usados;
+}
 
 async function verificarIntentosDiarios(){
   try{
@@ -691,12 +766,15 @@ async function verificarIntentosDiarios(){
     const clave = `${datosJugador.nombre}_${NOMBRE_RETO_BD}`;
     const intentosRealizados = (datos.intentosHoy && datos.intentosHoy[clave]) || 0;
 
-    controlAcceso.limiteAlcanzado = intentosRealizados >= diarioPermitido;
+    controlAcceso.diarioPermitido = diarioPermitido;
+    controlAcceso.intentosPrevios = intentosRealizados;
+    controlAcceso.limiteAlcanzado = intentosDisponiblesRestantes() <= 0;
     controlAcceso.intentosVerificados = true;
   } catch(error){
     // Ante un error de red, no se bloquea al alumno (mismo criterio usado
     // en el resto del catálogo de retos).
     console.warn('No se pudo verificar intentos diarios, se permite continuar:', error);
+    controlAcceso.diarioPermitido = 999;
     controlAcceso.limiteAlcanzado = false;
     controlAcceso.intentosVerificados = true;
   }
