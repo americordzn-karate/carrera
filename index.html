@@ -1,1 +1,738 @@
-aqui va
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Carrera contra el Conejo · Senshi-Kan</title>
+<style>
+  :root{
+    --dojo-red:#c0392b;
+    --dojo-gold:#e8b84b;
+    --dojo-ink:#111417;
+    --dojo-paper:#f4f1ea;
+    --track-line:#f4f1ea;
+    --ok-green:#4caf7d;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0;padding:0;width:100%;height:100%;
+    background:var(--dojo-ink);
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    overflow:hidden;
+    color:var(--dojo-paper);
+  }
+
+  /* ---------- Escenario de cámara ---------- */
+  #escenario{
+    position:relative;
+    width:100vw;height:100vh;
+    overflow:hidden;
+    background:#000;
+  }
+  #video{
+    position:absolute;inset:0;
+    width:100%;height:100%;
+    object-fit:cover;
+    transform:scaleX(-1); /* efecto espejo para el jugador */
+  }
+  #capa-pista{
+    position:absolute;inset:0;
+    width:100%;height:100%;
+    pointer-events:none;
+  }
+  .corredor{
+    position:absolute;
+    font-size:9vw;
+    line-height:1;
+    transform:translate(-50%,-50%);
+    filter:drop-shadow(0 3px 4px rgba(0,0,0,.6));
+    transition:left .08s linear, top .08s linear;
+    z-index:5;
+  }
+  #karateka{ z-index:6; }
+  #conejo{ z-index:5; }
+
+  /* ---------- HUD superior ---------- */
+  #hud-superior{
+    position:absolute;top:0;left:0;right:0;
+    padding:10px 14px calc(10px + env(safe-area-inset-top));
+    background:linear-gradient(180deg, rgba(0,0,0,.75), rgba(0,0,0,0));
+    z-index:20;
+    display:flex;flex-direction:column;gap:8px;
+  }
+  .fila-hud{display:flex;align-items:center;gap:10px;}
+  .estado-texto{
+    font-weight:700;font-size:15px;letter-spacing:.3px;
+    color:var(--dojo-gold);
+    flex:1;
+  }
+  #cronometro{
+    font-variant-numeric:tabular-nums;
+    font-weight:700;font-size:15px;
+    background:rgba(0,0,0,.4);
+    padding:4px 10px;border-radius:20px;
+  }
+  .barra-progreso-wrap{
+    display:flex;align-items:center;gap:8px;
+  }
+  .etiqueta-barra{width:22px;font-size:16px;text-align:center;}
+  .barra-fondo{
+    flex:1;height:10px;border-radius:6px;
+    background:rgba(255,255,255,.18);
+    overflow:hidden;
+  }
+  .barra-fondo .relleno{
+    height:100%;border-radius:6px;
+    transition:width .15s linear;
+  }
+  #relleno-jugador{background:var(--dojo-red);}
+  #relleno-conejo{background:var(--dojo-gold);}
+  .pct-texto{width:38px;font-size:12px;text-align:right;font-variant-numeric:tabular-nums;opacity:.9;}
+
+  /* ---------- Panel central (calibración / cuenta regresiva / mensajes) ---------- */
+  #panel-central{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    z-index:30;
+    pointer-events:none;
+  }
+  #texto-central{
+    font-weight:800;
+    text-align:center;
+    text-shadow:0 4px 14px rgba(0,0,0,.7);
+    pointer-events:none;
+  }
+  .cuenta-numero{
+    font-size:min(28vw,180px);
+    color:var(--dojo-gold);
+  }
+  .cuenta-ya{
+    font-size:min(16vw,100px);
+    color:var(--ok-green);
+  }
+  .mensaje-calibracion{
+    font-size:5vw;
+    max-width:80vw;
+    background:rgba(0,0,0,.55);
+    padding:16px 20px;border-radius:14px;
+    line-height:1.4;
+  }
+
+  /* ---------- Botón inferior ---------- */
+  #barra-inferior{
+    position:absolute;bottom:0;left:0;right:0;
+    padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+    display:flex;justify-content:center;
+    background:linear-gradient(0deg, rgba(0,0,0,.75), rgba(0,0,0,0));
+    z-index:20;
+  }
+  #btn-iniciar{
+    appearance:none;border:none;
+    background:var(--dojo-red);
+    color:var(--dojo-paper);
+    font-weight:800;font-size:16px;letter-spacing:.4px;
+    padding:14px 34px;border-radius:30px;
+    box-shadow:0 6px 16px rgba(192,57,43,.45);
+    transition:opacity .2s, transform .1s;
+  }
+  #btn-iniciar:disabled{
+    background:#555;color:#aaa;box-shadow:none;
+  }
+  #btn-iniciar:active:not(:disabled){transform:scale(.97);}
+
+  /* ---------- Modal de resultado ---------- */
+  #modal-resultado{
+    position:fixed;inset:0;
+    background:rgba(10,10,12,.88);
+    display:none;
+    align-items:center;justify-content:center;
+    z-index:50;
+    text-align:center;
+    padding:24px;
+  }
+  #modal-resultado.visible{display:flex;}
+  .tarjeta-resultado{
+    background:var(--dojo-paper);color:var(--dojo-ink);
+    border-radius:20px;
+    padding:34px 28px;
+    max-width:380px;width:100%;
+    box-shadow:0 20px 50px rgba(0,0,0,.5);
+  }
+  .icono-resultado{font-size:64px;margin-bottom:6px;}
+  .titulo-resultado{font-size:24px;font-weight:800;margin:6px 0 2px;}
+  .puntos-resultado{
+    font-size:34px;font-weight:800;margin:10px 0 4px;
+  }
+  .gano .puntos-resultado{color:var(--ok-green);}
+  .perdio .puntos-resultado{color:var(--dojo-red);}
+  .detalle-resultado{font-size:14px;opacity:.75;margin-bottom:20px;}
+  #btn-volver{
+    appearance:none;border:none;
+    background:var(--dojo-ink);color:var(--dojo-paper);
+    font-weight:700;font-size:15px;
+    padding:13px 30px;border-radius:30px;
+    width:100%;
+  }
+
+  /* Ocultar hasta que la cámara esté lista */
+  .oculto{display:none !important;}
+</style>
+</head>
+<body>
+
+<div id="escenario">
+  <video id="video" autoplay playsinline muted></video>
+
+  <svg id="capa-pista" viewBox="0 0 100 100" preserveAspectRatio="none">
+    <ellipse id="ovalo-pista" cx="50" cy="52" rx="38" ry="30"
+             fill="none" stroke="var(--track-line)" stroke-width="1.4"
+             stroke-opacity="0.9"/>
+    <!-- línea de meta -->
+    <line id="linea-meta" x1="50" y1="20" x2="50" y2="26"
+          stroke="var(--dojo-gold)" stroke-width="2.4" stroke-linecap="round"/>
+  </svg>
+
+  <div id="conejo" class="corredor">🐇</div>
+  <div id="karateka" class="corredor">🥷</div>
+
+  <div id="hud-superior">
+    <div class="fila-hud">
+      <div class="estado-texto" id="texto-estado">Preparando cámara…</div>
+      <div id="cronometro">00:00</div>
+    </div>
+    <div class="barra-progreso-wrap">
+      <div class="etiqueta-barra">🥷</div>
+      <div class="barra-fondo"><div class="relleno" id="relleno-jugador" style="width:0%"></div></div>
+      <div class="pct-texto" id="pct-jugador">0%</div>
+    </div>
+    <div class="barra-progreso-wrap">
+      <div class="etiqueta-barra">🐇</div>
+      <div class="barra-fondo"><div class="relleno" id="relleno-conejo" style="width:0%"></div></div>
+      <div class="pct-texto" id="pct-conejo">0%</div>
+    </div>
+  </div>
+
+  <div id="panel-central">
+    <div id="texto-central"></div>
+  </div>
+
+  <div id="barra-inferior">
+    <button id="btn-iniciar" disabled>Cargando cámara…</button>
+  </div>
+</div>
+
+<div id="modal-resultado">
+  <div class="tarjeta-resultado" id="tarjeta-resultado">
+    <div class="icono-resultado" id="icono-resultado">🏆</div>
+    <div class="titulo-resultado" id="titulo-resultado">¡Ganaste!</div>
+    <div class="puntos-resultado" id="puntos-resultado">+50 pts</div>
+    <div class="detalle-resultado" id="detalle-resultado"></div>
+    <button id="btn-volver">Volver al portal</button>
+  </div>
+</div>
+
+<!-- Librerías MediaPipe (mismas usadas en POSICIONES / PUNCH) -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+<script>
+/* ======================================================================
+   CARRERA CONTRA EL CONEJO — Senshi-Kan Retos
+   Fase actual: diseño y lógica de juego (SIN conexión a base de datos).
+   El envío de puntos se integrará después siguiendo el patrón POST
+   estándar (no-cors, JSON) usado en el resto del catálogo.
+   ====================================================================== */
+
+// ---------- 1. Parámetros recibidos desde el portal ----------
+const parametrosURL = new URLSearchParams(window.location.search);
+const datosJugador = {
+  nombre:   parametrosURL.get('nombre')   || '',
+  edad:     parametrosURL.get('edad')     || '',
+  reto:     parametrosURL.get('reto')     || 'CARRERA',
+  estatura: parseFloat(parametrosURL.get('estatura')) || 160, // cm, con respaldo
+  peso:     parametrosURL.get('peso')     || ''
+};
+
+// ---------- 1b. Conexión con Apps Script / Google Sheets ----------
+const ENDPOINT_APPS_SCRIPT = 'https://script.google.com/macros/s/AKfycbwX5w8iiwkJVbGtpz-5f20U9jue2MC0vouE3blkHXo9CIMqg9bvCZrAYE8WKxH4gXGWzg/exec';
+const NOMBRE_RETO_BD = 'CARRERA'; // Debe coincidir exactamente con Catalogo_Retos
+
+function volverAlPortal(){
+  const base = 'https://americordzn-karate.github.io/retos/';
+  const params = new URLSearchParams({
+    nombre: datosJugador.nombre,
+    edad: datosJugador.edad,
+    reto: datosJugador.reto,
+    estatura: datosJugador.estatura,
+    peso: datosJugador.peso
+  });
+  window.location.href = base + '?' + params.toString();
+}
+document.getElementById('btn-volver').addEventListener('click', volverAlPortal);
+
+// ---------- 2. Referencias DOM ----------
+const elVideo         = document.getElementById('video');
+const elKarateka      = document.getElementById('karateka');
+const elConejo        = document.getElementById('conejo');
+const elTextoEstado   = document.getElementById('texto-estado');
+const elCronometro    = document.getElementById('cronometro');
+const elRellenoJug    = document.getElementById('relleno-jugador');
+const elRellenoCon    = document.getElementById('relleno-conejo');
+const elPctJug        = document.getElementById('pct-jugador');
+const elPctCon        = document.getElementById('pct-conejo');
+const elTextoCentral  = document.getElementById('texto-central');
+const elBtnIniciar    = document.getElementById('btn-iniciar');
+const elModal         = document.getElementById('modal-resultado');
+const elTarjeta       = document.getElementById('tarjeta-resultado');
+const elIcono         = document.getElementById('icono-resultado');
+const elTitulo        = document.getElementById('titulo-resultado');
+const elPuntos        = document.getElementById('puntos-resultado');
+const elDetalle       = document.getElementById('detalle-resultado');
+
+// ---------- 3. Parámetros de la pista (elipse en % del contenedor) ----------
+const PISTA = { cx:50, cy:52, rx:38, ry:30 };
+
+function posicionEnPista(porcentaje){
+  const t = Math.max(0, Math.min(100, porcentaje)) / 100;
+  // Ángulo inicial: -90° (arriba, línea de meta). Avanza en sentido horario.
+  const anguloGrados = -90 + t * 360;
+  const anguloRad = anguloGrados * Math.PI / 180;
+  return {
+    x: PISTA.cx + PISTA.rx * Math.cos(anguloRad),
+    y: PISTA.cy + PISTA.ry * Math.sin(anguloRad)
+  };
+}
+
+function actualizarPosicionCorredor(elemento, porcentaje){
+  const p = posicionEnPista(porcentaje);
+  elemento.style.left = p.x + '%';
+  elemento.style.top  = p.y + '%';
+}
+
+// Posición inicial de ambos en la línea de meta
+actualizarPosicionCorredor(elKarateka, 0);
+actualizarPosicionCorredor(elConejo, 0);
+
+// ---------- 4. Audio (Web Audio API, mismo enfoque que otros retos) ----------
+let contextoAudio = null;
+function obtenerContextoAudio(){
+  if(!contextoAudio){
+    contextoAudio = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return contextoAudio;
+}
+function reproducirTono(frecuencia, duracionMs, tipo='sine', volumen=0.25){
+  const ctx = obtenerContextoAudio();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = tipo;
+  osc.frequency.value = frecuencia;
+  gain.gain.value = volumen;
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duracionMs/1000);
+  osc.stop(ctx.currentTime + duracionMs/1000 + 0.02);
+}
+function beepCuentaRegresiva(numero){
+  reproducirTono(440, 180, 'square', 0.22);
+}
+function beepInicio(){
+  reproducirTono(880, 450, 'sawtooth', 0.28);
+}
+function beepRepeticion(){
+  reproducirTono(660, 70, 'sine', 0.12);
+}
+function beepFinal(gano){
+  if(gano){
+    reproducirTono(523, 150, 'sine', 0.25);
+    setTimeout(()=>reproducirTono(659, 150, 'sine', 0.25), 150);
+    setTimeout(()=>reproducirTono(784, 300, 'sine', 0.25), 300);
+  } else {
+    reproducirTono(300, 400, 'sawtooth', 0.25);
+  }
+}
+
+// ---------- 5. Estado general del juego ----------
+const ESTADOS = {
+  CARGANDO: 'CARGANDO',
+  LISTO_PARA_CALIBRAR: 'LISTO_PARA_CALIBRAR',
+  CALIBRANDO: 'CALIBRANDO',
+  CUENTA_REGRESIVA: 'CUENTA_REGRESIVA',
+  CARRERA: 'CARRERA',
+  FINALIZADO: 'FINALIZADO'
+};
+let estadoJuego = ESTADOS.CARGANDO;
+
+const juego = {
+  progresoJugador: 0,      // 0-100 (avanza de 1 en 1, máx 100 repeticiones)
+  repeticiones: 0,
+  progresoConejo: 0,       // 0-100
+  velocidadConejo: 0,      // %/segundo
+  tiempoTotalConejo: 0,    // segundos aleatorios entre 45 y 60
+  tiempoInicioCarrera: 0,
+  ultimoAjusteConejo: 0,
+  ultimoFrame: 0,
+  finalizado: false
+};
+
+// ---------- 6. Calibración y detección de repeticiones (pie derecho) ----------
+const IDX_NARIZ = 0;
+const IDX_TOBILLO_DER = 28;
+
+const calibracion = {
+  muestras: [],
+  activa: false,
+  tiempoInicio: 0,
+  duracionMs: 2000,
+  tobilloReposoY: null,
+  umbralNormalizado: null
+};
+
+// Máquina de estados anti-trampa: exige regreso a posición inicial
+const deteccion = {
+  estado: 'ABAJO', // 'ABAJO' | 'ARRIBA'
+  margenRetorno: 0.35 // fracción del umbral para permitir el regreso a ABAJO
+};
+
+function iniciarCalibracion(){
+  estadoJuego = ESTADOS.CALIBRANDO;
+  calibracion.muestras = [];
+  calibracion.activa = true;
+  calibracion.tiempoInicio = performance.now();
+  mostrarMensajeCentral('mensaje-calibracion',
+    'Colócate de pie, cuerpo completo visible en cámara.<br>Mantente quieto para calibrar…');
+  elTextoEstado.textContent = 'Calibrando…';
+}
+
+function procesarCalibracion(landmarks){
+  const nariz = landmarks[IDX_NARIZ];
+  const tobillo = landmarks[IDX_TOBILLO_DER];
+  if(!nariz || !tobillo) return;
+  if(nariz.visibility < 0.4 || tobillo.visibility < 0.4) return;
+
+  calibracion.muestras.push({ narizY: nariz.y, tobilloY: tobillo.y });
+
+  const transcurrido = performance.now() - calibracion.tiempoInicio;
+  if(transcurrido >= calibracion.duracionMs && calibracion.muestras.length >= 10){
+    finalizarCalibracion();
+  }
+}
+
+function finalizarCalibracion(){
+  calibracion.activa = false;
+  const n = calibracion.muestras.length;
+  const promNariz   = calibracion.muestras.reduce((s,m)=>s+m.narizY,0) / n;
+  const promTobillo = calibracion.muestras.reduce((s,m)=>s+m.tobilloY,0) / n;
+
+  const alturaCuerpoNormalizada = Math.max(0.05, promTobillo - promNariz);
+  calibracion.tobilloReposoY = promTobillo;
+
+  // 5 cm expresados como fracción normalizada de la imagen, escalados
+  // por la estatura real del jugador (dato enviado por el portal).
+  calibracion.umbralNormalizado = 5 * (alturaCuerpoNormalizada / datosJugador.estatura);
+
+  iniciarCuentaRegresiva();
+}
+
+function procesarDeteccionRepeticion(landmarks){
+  const tobillo = landmarks[IDX_TOBILLO_DER];
+  if(!tobillo || tobillo.visibility < 0.4) return;
+  if(calibracion.tobilloReposoY === null || calibracion.umbralNormalizado === null) return;
+
+  // El eje Y crece hacia abajo: al levantar el pie, Y disminuye.
+  const delta = calibracion.tobilloReposoY - tobillo.y;
+  const umbral = calibracion.umbralNormalizado;
+
+  if(deteccion.estado === 'ABAJO' && delta > umbral){
+    deteccion.estado = 'ARRIBA';
+    registrarRepeticion();
+  } else if(deteccion.estado === 'ARRIBA' && delta < umbral * deteccion.margenRetorno){
+    deteccion.estado = 'ABAJO';
+  }
+}
+
+function registrarRepeticion(){
+  if(juego.repeticiones >= 100) return;
+  juego.repeticiones += 1;
+  juego.progresoJugador = juego.repeticiones; // 1 repetición = 1%
+  beepRepeticion();
+  actualizarHUD();
+  actualizarPosicionCorredor(elKarateka, juego.progresoJugador);
+  verificarFinDeCarrera();
+}
+
+// ---------- 7. Cuenta regresiva ----------
+function iniciarCuentaRegresiva(){
+  estadoJuego = ESTADOS.CUENTA_REGRESIVA;
+  elTextoEstado.textContent = 'Prepárate…';
+  let numero = 5;
+  mostrarMensajeCentral('cuenta-numero', numero);
+  beepCuentaRegresiva(numero);
+
+  const intervalo = setInterval(() => {
+    numero -= 1;
+    if(numero > 0){
+      mostrarMensajeCentral('cuenta-numero', numero);
+      beepCuentaRegresiva(numero);
+    } else {
+      clearInterval(intervalo);
+      mostrarMensajeCentral('cuenta-ya', '¡YA!');
+      beepInicio();
+      setTimeout(() => {
+        limpiarMensajeCentral();
+        iniciarCarrera();
+      }, 500);
+    }
+  }, 1000);
+}
+
+// ---------- 8. Lógica del conejo (IA de velocidad variable) ----------
+function inicializarConejo(){
+  juego.tiempoTotalConejo = 45 + Math.random() * 15; // entre 45 y 60 s
+  juego.progresoConejo = 0;
+  ajustarVelocidadConejo();
+}
+
+function ajustarVelocidadConejo(){
+  const ahora = performance.now();
+  const tiempoTranscurrido = (ahora - juego.tiempoInicioCarrera) / 1000;
+  const tiempoRestante = Math.max(0.5, juego.tiempoTotalConejo - tiempoTranscurrido);
+  const restanteProgreso = Math.max(0, 100 - juego.progresoConejo);
+
+  const velocidadBase = restanteProgreso / tiempoRestante;
+  const factorVariacion = 0.7 + Math.random() * 0.6; // entre 0.7 y 1.3
+  juego.velocidadConejo = Math.max(0.2, velocidadBase * factorVariacion);
+
+  juego.ultimoAjusteConejo = ahora;
+}
+
+// ---------- 9. Bucle de carrera ----------
+let idIntervaloAjusteConejo = null;
+let idAnimacion = null;
+
+function iniciarCarrera(){
+  estadoJuego = ESTADOS.CARRERA;
+  elTextoEstado.textContent = '¡Carrera en curso!';
+  juego.tiempoInicioCarrera = performance.now();
+  juego.ultimoFrame = juego.tiempoInicioCarrera;
+
+  inicializarConejo();
+  idIntervaloAjusteConejo = setInterval(ajustarVelocidadConejo, 3000);
+
+  idAnimacion = requestAnimationFrame(bucleAnimacion);
+}
+
+function bucleAnimacion(ahora){
+  if(estadoJuego !== ESTADOS.CARRERA){ return; }
+
+  const deltaSeg = (ahora - juego.ultimoFrame) / 1000;
+  juego.ultimoFrame = ahora;
+
+  juego.progresoConejo = Math.min(100, juego.progresoConejo + juego.velocidadConejo * deltaSeg);
+  actualizarPosicionCorredor(elConejo, juego.progresoConejo);
+
+  actualizarCronometro(ahora);
+  actualizarHUD();
+  verificarFinDeCarrera();
+
+  if(estadoJuego === ESTADOS.CARRERA){
+    idAnimacion = requestAnimationFrame(bucleAnimacion);
+  }
+}
+
+function actualizarCronometro(ahora){
+  const segundosTotales = Math.floor((ahora - juego.tiempoInicioCarrera) / 1000);
+  const mm = String(Math.floor(segundosTotales / 60)).padStart(2,'0');
+  const ss = String(segundosTotales % 60).padStart(2,'0');
+  elCronometro.textContent = `${mm}:${ss}`;
+}
+
+function actualizarHUD(){
+  elRellenoJug.style.width = juego.progresoJugador + '%';
+  elRellenoCon.style.width = juego.progresoConejo + '%';
+  elPctJug.textContent = Math.floor(juego.progresoJugador) + '%';
+  elPctCon.textContent = Math.floor(juego.progresoConejo) + '%';
+}
+
+function verificarFinDeCarrera(){
+  if(juego.finalizado || estadoJuego !== ESTADOS.CARRERA) return;
+
+  if(juego.progresoJugador >= 100){
+    finalizarCarrera(true);
+  } else if(juego.progresoConejo >= 100){
+    finalizarCarrera(false);
+  }
+}
+
+function finalizarCarrera(jugadorGano){
+  juego.finalizado = true;
+  estadoJuego = ESTADOS.FINALIZADO;
+  clearInterval(idIntervaloAjusteConejo);
+  if(idAnimacion) cancelAnimationFrame(idAnimacion);
+  beepFinal(jugadorGano);
+  mostrarResultado(jugadorGano);
+  enviarResultadoABD(jugadorGano);
+}
+
+function enviarResultadoABD(jugadorGano){
+  const puntos = jugadorGano ? 50 : -20;
+  fetch(ENDPOINT_APPS_SCRIPT, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      nombre_alumno: datosJugador.nombre,
+      nombre_reto: NOMBRE_RETO_BD,
+      puntos: puntos
+    })
+  }).catch((error) => {
+    console.warn('No se pudo registrar el resultado en la base de datos:', error);
+  });
+}
+
+function mostrarResultado(jugadorGano){
+  elTarjeta.className = 'tarjeta-resultado ' + (jugadorGano ? 'gano' : 'perdio');
+  elIcono.textContent = jugadorGano ? '🏆' : '🐇';
+  elTitulo.textContent = jugadorGano ? '¡Ganaste la carrera!' : 'El conejo llegó primero';
+  elPuntos.textContent = jugadorGano ? '+50 pts' : '−20 pts';
+  elDetalle.textContent = jugadorGano
+    ? `Completaste las 100 elevaciones antes que el conejo.`
+    : `Alcanzaste ${Math.floor(juego.progresoJugador)}% del recorrido.`;
+  elModal.classList.add('visible');
+}
+
+// ---------- 10. Mensajes centrales ----------
+function mostrarMensajeCentral(clase, contenido){
+  elTextoCentral.className = clase;
+  elTextoCentral.innerHTML = contenido;
+}
+function limpiarMensajeCentral(){
+  elTextoCentral.className = '';
+  elTextoCentral.innerHTML = '';
+}
+
+// ---------- 11. Verificación de intentos diarios permitidos ----------
+const controlAcceso = {
+  camaraLista: false,
+  camaraConError: false,
+  intentosVerificados: false,
+  limiteAlcanzado: false
+};
+
+async function verificarIntentosDiarios(){
+  try{
+    const respuesta = await fetch(ENDPOINT_APPS_SCRIPT, { method: 'GET' });
+    const datos = await respuesta.json();
+
+    const cataReto = (datos.retos || []).find(r => r.nombre === NOMBRE_RETO_BD);
+    const diarioPermitido = cataReto ? parseInt(cataReto.diario_permitido) : 999;
+
+    const clave = `${datosJugador.nombre}_${NOMBRE_RETO_BD}`;
+    const intentosRealizados = (datos.intentosHoy && datos.intentosHoy[clave]) || 0;
+
+    controlAcceso.limiteAlcanzado = intentosRealizados >= diarioPermitido;
+    controlAcceso.intentosVerificados = true;
+  } catch(error){
+    // Ante un error de red, no se bloquea al alumno (mismo criterio usado
+    // en el resto del catálogo de retos).
+    console.warn('No se pudo verificar intentos diarios, se permite continuar:', error);
+    controlAcceso.limiteAlcanzado = false;
+    controlAcceso.intentosVerificados = true;
+  }
+  actualizarEstadoBoton();
+}
+
+function actualizarEstadoBoton(){
+  if(controlAcceso.camaraConError){
+    elBtnIniciar.disabled = true;
+    elBtnIniciar.textContent = 'Cámara no disponible';
+    elTextoEstado.textContent = 'No se pudo acceder a la cámara';
+    return;
+  }
+  if(controlAcceso.intentosVerificados && controlAcceso.limiteAlcanzado){
+    elBtnIniciar.disabled = true;
+    elBtnIniciar.textContent = 'Límite diario alcanzado';
+    elTextoEstado.textContent = 'Ya completaste tus intentos de hoy en este reto';
+    return;
+  }
+  if(controlAcceso.camaraLista && controlAcceso.intentosVerificados){
+    estadoJuego = ESTADOS.LISTO_PARA_CALIBRAR;
+    elBtnIniciar.disabled = false;
+    elBtnIniciar.textContent = 'Comenzar carrera';
+    elTextoEstado.textContent = 'Cámara lista';
+    return;
+  }
+  elBtnIniciar.disabled = true;
+  elBtnIniciar.textContent = 'Verificando…';
+  elTextoEstado.textContent = controlAcceso.camaraLista
+    ? 'Verificando intentos disponibles…'
+    : 'Preparando cámara…';
+}
+
+// ---------- 12. Inicialización de cámara + MediaPipe Pose ----------
+let poseListo = false;
+
+const pose = new Pose({
+  locateFile: (archivo) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${archivo}`
+});
+pose.setOptions({
+  modelComplexity: 1,
+  smoothLandmarks: true,
+  minDetectionConfidence: 0.6,
+  minTrackingConfidence: 0.6
+});
+pose.onResults(onResultadosPose);
+
+function onResultadosPose(resultados){
+  if(!resultados.poseLandmarks) return;
+  const landmarks = resultados.poseLandmarks;
+
+  if(estadoJuego === ESTADOS.CALIBRANDO && calibracion.activa){
+    procesarCalibracion(landmarks);
+  } else if(estadoJuego === ESTADOS.CARRERA){
+    procesarDeteccionRepeticion(landmarks);
+  }
+}
+
+async function iniciarCamara(){
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: 1280, height: 720 },
+      audio: false
+    });
+    elVideo.srcObject = stream;
+
+    await new Promise((resolve) => { elVideo.onloadedmetadata = resolve; });
+
+    const camara = new Camera(elVideo, {
+      onFrame: async () => { await pose.send({ image: elVideo }); },
+      width: 1280,
+      height: 720
+    });
+    camara.start();
+
+    poseListo = true;
+    controlAcceso.camaraLista = true;
+    actualizarEstadoBoton();
+  } catch(error){
+    console.error('Error al iniciar la cámara:', error);
+    controlAcceso.camaraConError = true;
+    actualizarEstadoBoton();
+  }
+}
+
+elBtnIniciar.addEventListener('click', () => {
+  if(estadoJuego !== ESTADOS.LISTO_PARA_CALIBRAR) return;
+  elBtnIniciar.disabled = true;
+  document.getElementById('barra-inferior').classList.add('oculto');
+  iniciarCalibracion();
+});
+
+// Ambas verificaciones corren en paralelo; el botón solo se habilita
+// cuando la cámara está lista Y se confirmó que hay intentos disponibles.
+iniciarCamara();
+verificarIntentosDiarios();
+</script>
+</body>
+</html>
