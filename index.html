@@ -495,7 +495,7 @@ function finalizarCalibracion(){
   // frente a los 5 cm originales tras pruebas de campo: el movimiento real
   // de la cámara amortigua y proyecta el desplazamiento, por lo que un
   // valor más leve refleja mejor una elevación cómoda para el alumno.
-  const umbralCalculado = 3 * (alturaCuerpoNormalizada / datosJugador.estatura);
+  const umbralCalculado = 1 * (alturaCuerpoNormalizada / datosJugador.estatura);
   calibracion.umbralNormalizado = Math.max(umbralCalculado, 0.008);
 
   iniciarCuentaRegresiva();
