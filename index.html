@@ -20,12 +20,16 @@
     font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
     overflow:hidden;
     color:var(--dojo-paper);
+    position:fixed;
+    inset:0;
   }
 
   /* ---------- Escenario de cámara ---------- */
   #escenario{
     position:relative;
-    width:100vw;height:100vh;
+    width:100vw;
+    height:100vh;
+    height:100dvh; /* evita que la barra del navegador móvil recorte contenido */
     overflow:hidden;
     background:#000;
   }
@@ -121,19 +125,21 @@
   /* ---------- Botón inferior ---------- */
   #barra-inferior{
     position:absolute;bottom:0;left:0;right:0;
-    padding:14px 16px calc(14px + env(safe-area-inset-bottom));
+    padding:18px 16px;
+    padding-bottom:max(22px, calc(env(safe-area-inset-bottom) + 16px));
     display:flex;justify-content:center;
-    background:linear-gradient(0deg, rgba(0,0,0,.75), rgba(0,0,0,0));
+    background:linear-gradient(0deg, rgba(0,0,0,.92) 0%, rgba(0,0,0,.75) 55%, rgba(0,0,0,0) 100%);
     z-index:20;
   }
   #btn-iniciar{
     appearance:none;border:none;
     background:var(--dojo-red);
     color:var(--dojo-paper);
-    font-weight:800;font-size:16px;letter-spacing:.4px;
-    padding:14px 34px;border-radius:30px;
-    box-shadow:0 6px 16px rgba(192,57,43,.45);
+    font-weight:800;font-size:17px;letter-spacing:.4px;
+    padding:16px 38px;border-radius:30px;
+    box-shadow:0 8px 20px rgba(0,0,0,.5), 0 0 0 2px rgba(244,241,234,.15);
     transition:opacity .2s, transform .1s;
+    min-width:220px;
   }
   #btn-iniciar:disabled{
     background:#555;color:#aaa;box-shadow:none;
@@ -210,6 +216,7 @@
       <div class="barra-fondo"><div class="relleno" id="relleno-conejo" style="width:0%"></div></div>
       <div class="pct-texto" id="pct-conejo">0%</div>
     </div>
+    <div id="debug-deteccion" style="font-size:11px;opacity:.65;font-family:monospace;"></div>
   </div>
 
   <div id="panel-central">
@@ -280,6 +287,7 @@ const elRellenoJug    = document.getElementById('relleno-jugador');
 const elRellenoCon    = document.getElementById('relleno-conejo');
 const elPctJug        = document.getElementById('pct-jugador');
 const elPctCon        = document.getElementById('pct-conejo');
+const elDebugDeteccion = document.getElementById('debug-deteccion');
 const elTextoCentral  = document.getElementById('texto-central');
 const elBtnIniciar    = document.getElementById('btn-iniciar');
 const elModal         = document.getElementById('modal-resultado');
@@ -379,12 +387,14 @@ const juego = {
 // ---------- 6. Calibración y detección de repeticiones (pie derecho) ----------
 const IDX_NARIZ = 0;
 const IDX_TOBILLO_DER = 28;
+const IDX_TALON_DER = 30;
+const IDX_PIE_INDICE_DER = 32;
 
 const calibracion = {
   muestras: [],
   activa: false,
   tiempoInicio: 0,
-  duracionMs: 2000,
+  duracionMs: 2500,
   tobilloReposoY: null,
   umbralNormalizado: null
 };
@@ -392,14 +402,34 @@ const calibracion = {
 // Máquina de estados anti-trampa: exige regreso a posición inicial
 const deteccion = {
   estado: 'ABAJO', // 'ABAJO' | 'ARRIBA'
-  margenRetorno: 0.35 // fracción del umbral para permitir el regreso a ABAJO
+  margenRetorno: 0.45, // fracción del umbral para permitir el regreso a ABAJO
+  ySuavizada: null,
+  alphaSuavizado: 0.45 // filtro exponencial: reduce el ruido/temblor de la cámara
 };
+
+// Combina tobillo, talón y punta del pie derecho: usa el punto con mayor
+// visibilidad para tolerar oclusiones parciales del pie.
+function obtenerYPieDerecho(landmarks){
+  const candidatos = [
+    landmarks[IDX_TOBILLO_DER],
+    landmarks[IDX_TALON_DER],
+    landmarks[IDX_PIE_INDICE_DER]
+  ].filter(p => p && p.visibility >= 0.3);
+
+  if(candidatos.length === 0) return null;
+
+  let sumaY = 0, sumaPeso = 0;
+  candidatos.forEach(p => { sumaY += p.y * p.visibility; sumaPeso += p.visibility; });
+  return sumaY / sumaPeso;
+}
 
 function iniciarCalibracion(){
   estadoJuego = ESTADOS.CALIBRANDO;
   calibracion.muestras = [];
   calibracion.activa = true;
   calibracion.tiempoInicio = performance.now();
+  deteccion.ySuavizada = null;
+  deteccion.estado = 'ABAJO';
   mostrarMensajeCentral('mensaje-calibracion',
     'Colócate de pie, cuerpo completo visible en cámara.<br>Mantente quieto para calibrar…');
   elTextoEstado.textContent = 'Calibrando…';
@@ -407,42 +437,63 @@ function iniciarCalibracion(){
 
 function procesarCalibracion(landmarks){
   const nariz = landmarks[IDX_NARIZ];
-  const tobillo = landmarks[IDX_TOBILLO_DER];
-  if(!nariz || !tobillo) return;
-  if(nariz.visibility < 0.4 || tobillo.visibility < 0.4) return;
+  const yPie = obtenerYPieDerecho(landmarks);
+  if(!nariz || yPie === null) return;
+  if(nariz.visibility < 0.3) return;
 
-  calibracion.muestras.push({ narizY: nariz.y, tobilloY: tobillo.y });
+  calibracion.muestras.push({ narizY: nariz.y, pieY: yPie });
 
   const transcurrido = performance.now() - calibracion.tiempoInicio;
-  if(transcurrido >= calibracion.duracionMs && calibracion.muestras.length >= 10){
+  if(transcurrido >= calibracion.duracionMs && calibracion.muestras.length >= 15){
     finalizarCalibracion();
   }
 }
 
+// Media recortada: descarta el 10% de muestras más altas y más bajas para
+// evitar que un movimiento accidental durante la calibración distorsione
+// la posición de reposo.
+function mediaRecortada(valores){
+  const ordenados = [...valores].sort((a,b) => a - b);
+  const recorte = Math.floor(ordenados.length * 0.1);
+  const recortados = ordenados.slice(recorte, ordenados.length - recorte || undefined);
+  const base = recortados.length ? recortados : ordenados;
+  return base.reduce((s,v) => s + v, 0) / base.length;
+}
+
 function finalizarCalibracion(){
   calibracion.activa = false;
-  const n = calibracion.muestras.length;
-  const promNariz   = calibracion.muestras.reduce((s,m)=>s+m.narizY,0) / n;
-  const promTobillo = calibracion.muestras.reduce((s,m)=>s+m.tobilloY,0) / n;
+  const promNariz = mediaRecortada(calibracion.muestras.map(m => m.narizY));
+  const promPie   = mediaRecortada(calibracion.muestras.map(m => m.pieY));
 
-  const alturaCuerpoNormalizada = Math.max(0.05, promTobillo - promNariz);
-  calibracion.tobilloReposoY = promTobillo;
+  const alturaCuerpoNormalizada = Math.max(0.05, promPie - promNariz);
+  calibracion.tobilloReposoY = promPie;
 
   // 5 cm expresados como fracción normalizada de la imagen, escalados
   // por la estatura real del jugador (dato enviado por el portal).
-  calibracion.umbralNormalizado = 5 * (alturaCuerpoNormalizada / datosJugador.estatura);
+  // Se aplica un piso mínimo para no quedar por debajo del ruido típico
+  // de la cámara en distancias de cuerpo completo.
+  const umbralCalculado = 5 * (alturaCuerpoNormalizada / datosJugador.estatura);
+  calibracion.umbralNormalizado = Math.max(umbralCalculado, 0.014);
 
   iniciarCuentaRegresiva();
 }
 
 function procesarDeteccionRepeticion(landmarks){
-  const tobillo = landmarks[IDX_TOBILLO_DER];
-  if(!tobillo || tobillo.visibility < 0.4) return;
+  const yPieCrudo = obtenerYPieDerecho(landmarks);
+  if(yPieCrudo === null) return;
   if(calibracion.tobilloReposoY === null || calibracion.umbralNormalizado === null) return;
 
+  // Filtro exponencial: suaviza el temblor de la detección de pose sin
+  // introducir un retraso perceptible para el jugador.
+  deteccion.ySuavizada = deteccion.ySuavizada === null
+    ? yPieCrudo
+    : (deteccion.alphaSuavizado * yPieCrudo + (1 - deteccion.alphaSuavizado) * deteccion.ySuavizada);
+
   // El eje Y crece hacia abajo: al levantar el pie, Y disminuye.
-  const delta = calibracion.tobilloReposoY - tobillo.y;
+  const delta = calibracion.tobilloReposoY - deteccion.ySuavizada;
   const umbral = calibracion.umbralNormalizado;
+
+  actualizarDebugDeteccion(delta, umbral);
 
   if(deteccion.estado === 'ABAJO' && delta > umbral){
     deteccion.estado = 'ARRIBA';
@@ -450,6 +501,15 @@ function procesarDeteccionRepeticion(landmarks){
   } else if(deteccion.estado === 'ARRIBA' && delta < umbral * deteccion.margenRetorno){
     deteccion.estado = 'ABAJO';
   }
+}
+
+// Ayuda temporal de ajuste: muestra en pantalla la relación entre el
+// movimiento detectado (delta) y el umbral configurado. Útil durante
+// pruebas; puede ocultarse una vez calibrado el reto en campo.
+function actualizarDebugDeteccion(delta, umbral){
+  if(!elDebugDeteccion) return;
+  const relacion = (delta / umbral).toFixed(2);
+  elDebugDeteccion.textContent = `Δ:${delta.toFixed(3)}  umbral:${umbral.toFixed(3)}  (${relacion}x)  estado:${deteccion.estado}`;
 }
 
 function registrarRepeticion(){
@@ -679,8 +739,8 @@ const pose = new Pose({
 pose.setOptions({
   modelComplexity: 1,
   smoothLandmarks: true,
-  minDetectionConfidence: 0.6,
-  minTrackingConfidence: 0.6
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
 });
 pose.onResults(onResultadosPose);
 
