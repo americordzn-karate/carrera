@@ -54,6 +54,7 @@
     z-index:5;
   }
   #karateka{ z-index:6; }
+  #karateka2{ z-index:6; filter:drop-shadow(0 3px 4px rgba(0,0,0,.6)) hue-rotate(160deg); }
   #conejo{ z-index:5; }
 
   /* ---------- HUD superior ---------- */
@@ -91,6 +92,7 @@
   }
   #relleno-jugador{background:var(--dojo-red);}
   #relleno-conejo{background:var(--dojo-gold);}
+  #relleno-jugador2{background:#3b7dd8;}
   .pct-texto{width:38px;font-size:12px;text-align:right;font-variant-numeric:tabular-nums;opacity:.9;}
 
   /* ---------- Panel central (calibración / cuenta regresiva / mensajes) ---------- */
@@ -194,6 +196,39 @@
 
   /* Ocultar hasta que la cámara esté lista */
   .oculto{display:none !important;}
+
+  /* ---------- Paneles de selección de modo / formulario jugador 2 ---------- */
+  .panel-overlay{
+    position:absolute;inset:0;
+    background:rgba(10,10,12,.88);
+    display:flex;align-items:center;justify-content:center;
+    z-index:40;
+    padding:24px;
+  }
+  .tarjeta-panel{
+    background:var(--dojo-paper);color:var(--dojo-ink);
+    border-radius:20px;
+    padding:28px 24px;
+    max-width:380px;width:100%;
+    box-shadow:0 20px 50px rgba(0,0,0,.5);
+    display:flex;flex-direction:column;gap:12px;
+  }
+  .titulo-panel{font-size:19px;font-weight:800;margin-bottom:4px;}
+  .btn-opcion-modo{
+    appearance:none;border:2px solid var(--dojo-ink);
+    background:var(--dojo-ink);color:var(--dojo-paper);
+    font-weight:700;font-size:15px;
+    padding:14px 20px;border-radius:16px;
+    width:100%;text-align:left;
+  }
+  #btn-modo-conejo, #btn-modo-duelo{ text-align:center; }
+  .etiqueta-campo{font-size:12px;font-weight:700;opacity:.7;margin-top:4px;}
+  .campo-panel{
+    border:2px solid #ddd;border-radius:10px;
+    padding:10px 12px;font-size:15px;
+    background:#fff;color:var(--dojo-ink);
+  }
+  .error-panel{font-size:12px;color:var(--dojo-red);font-weight:700;}
 </style>
 </head>
 <body>
@@ -212,6 +247,7 @@
 
   <div id="conejo" class="corredor">🐇</div>
   <div id="karateka" class="corredor">🥷</div>
+  <div id="karateka2" class="corredor oculto">🥷</div>
 
   <div id="hud-superior">
     <div class="fila-hud">
@@ -228,6 +264,11 @@
       <div class="barra-fondo"><div class="relleno" id="relleno-conejo" style="width:0%"></div></div>
       <div class="pct-texto" id="pct-conejo">0%</div>
     </div>
+    <div class="barra-progreso-wrap oculto" id="fila-jugador2">
+      <div class="etiqueta-barra">🥷</div>
+      <div class="barra-fondo"><div class="relleno" id="relleno-jugador2" style="width:0%"></div></div>
+      <div class="pct-texto" id="pct-jugador2">0%</div>
+    </div>
     <div id="debug-deteccion" style="font-size:11px;opacity:.65;font-family:monospace;"></div>
   </div>
 
@@ -238,6 +279,26 @@
   <div id="barra-inferior">
     <button id="btn-iniciar" disabled>Cargando cámara…</button>
   </div>
+
+  <div id="panel-seleccion" class="panel-overlay oculto">
+    <div class="tarjeta-panel">
+      <div class="titulo-panel">¿Cómo quieres jugar?</div>
+      <button class="btn-opcion-modo" id="btn-modo-conejo">🐇 Contra el Conejo</button>
+      <button class="btn-opcion-modo" id="btn-modo-duelo">🥷 Duelo 1 vs 1</button>
+    </div>
+  </div>
+
+  <div id="panel-jugador2" class="panel-overlay oculto">
+    <div class="tarjeta-panel">
+      <div class="titulo-panel">Datos del segundo jugador</div>
+      <label class="etiqueta-campo" for="campo-nombre2">Nombre</label>
+      <input class="campo-panel" id="campo-nombre2" type="text" placeholder="Nombre del jugador 2" autocomplete="off">
+      <label class="etiqueta-campo" for="campo-estatura2">Estatura (cm)</label>
+      <input class="campo-panel" id="campo-estatura2" type="number" placeholder="Ej. 140" inputmode="numeric">
+      <div class="error-panel oculto" id="error-jugador2">Completa ambos campos para continuar.</div>
+      <button class="btn-opcion-modo" id="btn-confirmar-jugador2">Listo, comenzar duelo</button>
+    </div>
+  </div>
 </div>
 
 <div id="modal-resultado">
@@ -246,6 +307,7 @@
     <div class="titulo-resultado" id="titulo-resultado">¡Ganaste!</div>
     <div class="puntos-resultado" id="puntos-resultado">+50 pts</div>
     <div class="detalle-resultado" id="detalle-resultado"></div>
+    <div class="detalle-resultado oculto" id="detalle-resultado-duelo"></div>
     <div class="detalle-resultado" id="detalle-intentos"></div>
     <div class="grupo-botones-resultado">
       <button id="btn-reintentar">Volver a correr</button>
@@ -315,6 +377,21 @@ const elIcono         = document.getElementById('icono-resultado');
 const elTitulo        = document.getElementById('titulo-resultado');
 const elPuntos        = document.getElementById('puntos-resultado');
 const elDetalle       = document.getElementById('detalle-resultado');
+const elDetalleDuelo  = document.getElementById('detalle-resultado-duelo');
+
+// Referencias DOM del modo Duelo
+const elKarateka2       = document.getElementById('karateka2');
+const elFilaJugador2    = document.getElementById('fila-jugador2');
+const elRellenoJug2     = document.getElementById('relleno-jugador2');
+const elPctJug2         = document.getElementById('pct-jugador2');
+const elPanelSeleccion  = document.getElementById('panel-seleccion');
+const elPanelJugador2   = document.getElementById('panel-jugador2');
+const elCampoNombre2    = document.getElementById('campo-nombre2');
+const elCampoEstatura2  = document.getElementById('campo-estatura2');
+const elErrorJugador2   = document.getElementById('error-jugador2');
+const elBtnModoConejo   = document.getElementById('btn-modo-conejo');
+const elBtnModoDuelo    = document.getElementById('btn-modo-duelo');
+const elBtnConfirmarJ2  = document.getElementById('btn-confirmar-jugador2');
 
 // ---------- 3. Parámetros de la pista (elipse en % del contenedor) ----------
 const PISTA = { cx:50, cy:52, rx:38, ry:30 };
@@ -390,6 +467,7 @@ const ESTADOS = {
   FINALIZADO: 'FINALIZADO'
 };
 let estadoJuego = ESTADOS.CARGANDO;
+let MODO = 'CONEJO'; // 'CONEJO' | 'DUELO'
 
 const juego = {
   progresoJugador: 0,      // 0-100 (avanza de 1 en 1, máx 100 repeticiones)
@@ -495,7 +573,7 @@ function finalizarCalibracion(){
   // frente a los 5 cm originales tras pruebas de campo: el movimiento real
   // de la cámara amortigua y proyecta el desplazamiento, por lo que un
   // valor más leve refleja mejor una elevación cómoda para el alumno.
-  const umbralCalculado = 0.1 * (alturaCuerpoNormalizada / datosJugador.estatura);
+  const umbralCalculado = 0.05 * (alturaCuerpoNormalizada / datosJugador.estatura);
   calibracion.umbralNormalizado = Math.max(umbralCalculado, 0.008);
 
   iniciarCuentaRegresiva();
@@ -546,7 +624,7 @@ function registrarRepeticion(){
 }
 
 // ---------- 7. Cuenta regresiva ----------
-function iniciarCuentaRegresiva(){
+function iniciarCuentaRegresiva(alTerminar = iniciarCarrera){
   estadoJuego = ESTADOS.CUENTA_REGRESIVA;
   elTextoEstado.textContent = 'Prepárate…';
   let numero = 5;
@@ -564,7 +642,7 @@ function iniciarCuentaRegresiva(){
       beepInicio();
       setTimeout(() => {
         limpiarMensajeCentral();
-        iniciarCarrera();
+        alTerminar();
       }, 500);
     }
   }, 1000);
@@ -624,8 +702,8 @@ function bucleAnimacion(ahora){
   }
 }
 
-function actualizarCronometro(ahora){
-  const segundosTotales = Math.floor((ahora - juego.tiempoInicioCarrera) / 1000);
+function actualizarCronometro(ahora, inicio = juego.tiempoInicioCarrera){
+  const segundosTotales = Math.floor((ahora - inicio) / 1000);
   const mm = String(Math.floor(segundosTotales / 60)).padStart(2,'0');
   const ss = String(segundosTotales % 60).padStart(2,'0');
   elCronometro.textContent = `${mm}:${ss}`;
@@ -700,6 +778,11 @@ function mostrarResultado(jugadorGano){
 
 function reiniciarJuego(){
   elModal.classList.remove('visible');
+
+  if(MODO === 'DUELO'){
+    reiniciarJuegoDuelo();
+    return;
+  }
 
   // Reiniciar estado del jugador
   juego.progresoJugador = 0;
@@ -823,6 +906,7 @@ pose.setOptions({
 pose.onResults(onResultadosPose);
 
 function onResultadosPose(resultados){
+  if(MODO === 'DUELO') return; // en Duelo, la detección la maneja el pipeline de dos personas
   if(!resultados.poseLandmarks) return;
   const landmarks = resultados.poseLandmarks;
 
@@ -862,15 +946,349 @@ async function iniciarCamara(){
 
 elBtnIniciar.addEventListener('click', () => {
   if(estadoJuego !== ESTADOS.LISTO_PARA_CALIBRAR) return;
-  elBtnIniciar.disabled = true;
   document.getElementById('barra-inferior').classList.add('oculto');
-  iniciarCalibracion();
+  document.getElementById('panel-seleccion').classList.remove('oculto');
 });
 
 // Ambas verificaciones corren en paralelo; el botón solo se habilita
 // cuando la cámara está lista Y se confirmó que hay intentos disponibles.
 iniciarCamara();
 verificarIntentosDiarios();
+
+/* ======================================================================
+   ---------- 13. MODO DUELO 1 vs 1 ----------
+   Usa MediaPipe Tasks Vision (PoseLandmarker, numPoses:2) porque la
+   librería clásica @mediapipe/pose (modo Conejo) solo detecta una
+   persona por cuadro. Se activa solo si el usuario elige este modo,
+   para no afectar el rendimiento ni el comportamiento del modo Conejo.
+   ====================================================================== */
+
+let datosJugador2 = { nombre: '', estatura: 160 };
+let poseLandmarkerDuelo = null;
+let idAnimacionDuelo = null;
+let idIntervaloCronometroDuelo = null;
+
+function crearEstadoCalibracion(){
+  return { muestras: [], activa: false, tiempoInicio: 0, duracionMs: 4500, reposoY: null, umbralNormalizado: null };
+}
+function crearEstadoDeteccion(){
+  return { estado: 'ABAJO', margenRetorno: 0.45, ySuavizada: null, alphaSuavizado: 0.65 };
+}
+
+const calibracionA = crearEstadoCalibracion();
+const calibracionB = crearEstadoCalibracion();
+const deteccionA = crearEstadoDeteccion();
+const deteccionB = crearEstadoDeteccion();
+
+const juegoDuelo = {
+  progresoA: 0, repeticionesA: 0,
+  progresoB: 0, repeticionesB: 0,
+  tiempoInicioCarrera: 0,
+  finalizado: false
+};
+
+function xCaderaPromedio(landmarks){
+  const izq = landmarks[23], der = landmarks[24];
+  if(!izq || !der) return 0.5;
+  return (izq.x + der.x) / 2;
+}
+
+// ---------- Selección de modo ----------
+elBtnModoConejo.addEventListener('click', () => {
+  MODO = 'CONEJO';
+  elPanelSeleccion.classList.add('oculto');
+  iniciarCalibracion();
+});
+
+elBtnModoDuelo.addEventListener('click', () => {
+  elPanelSeleccion.classList.add('oculto');
+  elPanelJugador2.classList.remove('oculto');
+});
+
+elBtnConfirmarJ2.addEventListener('click', async () => {
+  const nombre2 = elCampoNombre2.value.trim();
+  const estatura2 = parseFloat(elCampoEstatura2.value);
+
+  if(!nombre2 || !estatura2 || estatura2 <= 0){
+    elErrorJugador2.classList.remove('oculto');
+    return;
+  }
+  elErrorJugador2.classList.add('oculto');
+  datosJugador2 = { nombre: nombre2, estatura: estatura2 };
+
+  elBtnConfirmarJ2.disabled = true;
+  elBtnConfirmarJ2.textContent = 'Cargando módulo de dos jugadores…';
+
+  try{
+    await activarModoDuelo();
+  } catch(error){
+    console.error('No se pudo activar el modo Duelo:', error);
+    elErrorJugador2.textContent = 'No se pudo cargar el modo Duelo. Intenta de nuevo.';
+    elErrorJugador2.classList.remove('oculto');
+    elBtnConfirmarJ2.disabled = false;
+    elBtnConfirmarJ2.textContent = 'Listo, comenzar duelo';
+  }
+});
+
+async function activarModoDuelo(){
+  poseLandmarkerDuelo = await cargarPoseLandmarkerDuelo();
+
+  MODO = 'DUELO';
+  elPanelJugador2.classList.add('oculto');
+
+  // Ajustar visibilidad de elementos del HUD y la pista
+  elConejo.classList.add('oculto');
+  document.getElementById('relleno-conejo').closest('.barra-progreso-wrap').classList.add('oculto');
+  elKarateka2.classList.remove('oculto');
+  elFilaJugador2.classList.remove('oculto');
+
+  idAnimacionDuelo = requestAnimationFrame(bucleDeteccionDuelo);
+  iniciarCalibracionDuelo();
+}
+
+async function cargarPoseLandmarkerDuelo(){
+  const { PoseLandmarker, FilesetResolver } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+  const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+  return await PoseLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+      delegate: 'GPU'
+    },
+    runningMode: 'VIDEO',
+    numPoses: 2,
+    minPoseDetectionConfidence: 0.5,
+    minPosePresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
+}
+
+// ---------- Bucle de detección de dos personas ----------
+function bucleDeteccionDuelo(ahora){
+  if(MODO !== 'DUELO'){ idAnimacionDuelo = requestAnimationFrame(bucleDeteccionDuelo); return; }
+
+  if(estadoJuego === ESTADOS.CALIBRANDO || estadoJuego === ESTADOS.CARRERA){
+    const resultado = poseLandmarkerDuelo.detectForVideo(elVideo, ahora);
+    if(resultado && resultado.landmarks && resultado.landmarks.length > 0){
+      const detectadas = resultado.landmarks
+        .map(lm => ({ lm, x: xCaderaPromedio(lm) }))
+        .sort((a, b) => a.x - b.x);
+
+      const landmarksA = detectadas[0] ? detectadas[0].lm : null;
+      const landmarksB = detectadas[1] ? detectadas[1].lm : null;
+
+      if(estadoJuego === ESTADOS.CALIBRANDO && calibracionA.activa){
+        procesarCalibracionDuelo(landmarksA, landmarksB);
+      } else if(estadoJuego === ESTADOS.CARRERA){
+        procesarDeteccionRepeticionDuelo(landmarksA, landmarksB);
+      }
+    }
+  }
+  idAnimacionDuelo = requestAnimationFrame(bucleDeteccionDuelo);
+}
+
+// ---------- Calibración de ambos jugadores ----------
+function iniciarCalibracionDuelo(){
+  estadoJuego = ESTADOS.CALIBRANDO;
+  [calibracionA, calibracionB].forEach(c => {
+    c.muestras = []; c.activa = true; c.tiempoInicio = performance.now();
+  });
+  [deteccionA, deteccionB].forEach(d => { d.estado = 'ABAJO'; d.ySuavizada = null; });
+  mostrarMensajeCentral('mensaje-calibracion',
+    'Ambos jugadores de pie, uno a cada lado, cuerpo completo visible.<br>Manténganse quietos para calibrar…');
+  elTextoEstado.textContent = 'Calibrando a ambos jugadores…';
+}
+
+function procesarCalibracionDuelo(landmarksA, landmarksB){
+  const transcurrido = performance.now() - calibracionA.tiempoInicio;
+  const restanteSeg = Math.max(0, Math.ceil((calibracionA.duracionMs - transcurrido) / 1000));
+
+  if(landmarksA){
+    const yPie = obtenerYPieDerecho(landmarksA);
+    if(yPie !== null) calibracionA.muestras.push(yPie);
+  }
+  if(landmarksB){
+    const yPie = obtenerYPieDerecho(landmarksB);
+    if(yPie !== null) calibracionB.muestras.push(yPie);
+  }
+
+  mostrarMensajeCentral('mensaje-calibracion',
+    `Ambos jugadores de pie, uno a cada lado, cuerpo completo visible.<br>Manténganse quietos para calibrar… (${restanteSeg}s)`);
+
+  if(transcurrido >= calibracionA.duracionMs
+     && calibracionA.muestras.length >= 20 && calibracionB.muestras.length >= 20){
+    finalizarCalibracionDuelo();
+  }
+}
+
+function finalizarCalibracionDuelo(){
+  calibracionA.activa = false;
+  calibracionB.activa = false;
+
+  // Nota: a diferencia del modo Conejo (que usa nariz-a-pie para escalar
+  // por estatura real), aquí se usa un umbral fijo en unidades normalizadas
+  // porque calcular la altura corporal de dos personas simultáneamente con
+  // suficiente estabilidad requeriría muestras adicionales por jugador.
+  // Este valor puede ajustarse igual que el del modo Conejo.
+  const UMBRAL_FIJO_DUELO = 0.03;
+
+  calibracionA.reposoY = mediaRecortada(calibracionA.muestras);
+  calibracionA.umbralNormalizado = UMBRAL_FIJO_DUELO;
+
+  calibracionB.reposoY = mediaRecortada(calibracionB.muestras);
+  calibracionB.umbralNormalizado = UMBRAL_FIJO_DUELO;
+
+  iniciarCuentaRegresiva(iniciarCarreraDuelo);
+}
+
+// ---------- Detección de repeticiones de ambos jugadores ----------
+function procesarUnPieDuelo(landmarks, estadoCal, estadoDet, alRegistrar){
+  if(!landmarks) return;
+  const yPieCrudo = obtenerYPieDerecho(landmarks);
+  if(yPieCrudo === null) return;
+  if(estadoCal.reposoY === null) return;
+
+  estadoDet.ySuavizada = estadoDet.ySuavizada === null
+    ? yPieCrudo
+    : (estadoDet.alphaSuavizado * yPieCrudo + (1 - estadoDet.alphaSuavizado) * estadoDet.ySuavizada);
+
+  const delta = estadoCal.reposoY - estadoDet.ySuavizada;
+  const umbral = estadoCal.umbralNormalizado;
+
+  if(estadoDet.estado === 'ABAJO' && delta > umbral){
+    estadoDet.estado = 'ARRIBA';
+    alRegistrar();
+  } else if(estadoDet.estado === 'ARRIBA' && delta < umbral * estadoDet.margenRetorno){
+    estadoDet.estado = 'ABAJO';
+  }
+}
+
+function procesarDeteccionRepeticionDuelo(landmarksA, landmarksB){
+  procesarUnPieDuelo(landmarksA, calibracionA, deteccionA, () => registrarRepeticionDuelo('A'));
+  procesarUnPieDuelo(landmarksB, calibracionB, deteccionB, () => registrarRepeticionDuelo('B'));
+}
+
+function registrarRepeticionDuelo(jugador){
+  if(juegoDuelo.finalizado) return;
+  beepRepeticion();
+  if(jugador === 'A'){
+    if(juegoDuelo.repeticionesA >= 100) return;
+    juegoDuelo.repeticionesA += 1;
+    juegoDuelo.progresoA = juegoDuelo.repeticionesA;
+    actualizarPosicionCorredor(elKarateka, juegoDuelo.progresoA);
+    elRellenoJug.style.width = juegoDuelo.progresoA + '%';
+    elPctJug.textContent = Math.floor(juegoDuelo.progresoA) + '%';
+  } else {
+    if(juegoDuelo.repeticionesB >= 100) return;
+    juegoDuelo.repeticionesB += 1;
+    juegoDuelo.progresoB = juegoDuelo.repeticionesB;
+    actualizarPosicionCorredor(elKarateka2, juegoDuelo.progresoB);
+    elRellenoJug2.style.width = juegoDuelo.progresoB + '%';
+    elPctJug2.textContent = Math.floor(juegoDuelo.progresoB) + '%';
+  }
+  verificarFinDeCarreraDuelo();
+}
+
+// ---------- Carrera Duelo ----------
+function iniciarCarreraDuelo(){
+  estadoJuego = ESTADOS.CARRERA;
+  elTextoEstado.textContent = '¡Duelo en curso!';
+  juegoDuelo.tiempoInicioCarrera = performance.now();
+
+  idIntervaloCronometroDuelo = setInterval(() => {
+    actualizarCronometro(performance.now(), juegoDuelo.tiempoInicioCarrera);
+  }, 250);
+}
+
+function verificarFinDeCarreraDuelo(){
+  if(juegoDuelo.finalizado || estadoJuego !== ESTADOS.CARRERA) return;
+  if(juegoDuelo.progresoA >= 100){
+    finalizarCarreraDuelo('A');
+  } else if(juegoDuelo.progresoB >= 100){
+    finalizarCarreraDuelo('B');
+  }
+}
+
+function finalizarCarreraDuelo(ganador){
+  juegoDuelo.finalizado = true;
+  estadoJuego = ESTADOS.FINALIZADO;
+  clearInterval(idIntervaloCronometroDuelo);
+  controlAcceso.intentosEnEstaSesion += 1; // solo se contabiliza el intento del alumno del portal
+  beepFinal(true);
+  mostrarResultadoDuelo(ganador);
+  enviarResultadoABDDuelo(ganador);
+}
+
+function enviarResultadoABDDuelo(ganador){
+  const puntosA = ganador === 'A' ? 50 : -20;
+  const puntosB = ganador === 'B' ? 50 : -20;
+
+  [
+    { nombre_alumno: datosJugador.nombre,  puntos: puntosA },
+    { nombre_alumno: datosJugador2.nombre, puntos: puntosB }
+  ].forEach(registro => {
+    fetch(ENDPOINT_APPS_SCRIPT, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nombre_alumno: registro.nombre_alumno,
+        nombre_reto: NOMBRE_RETO_BD,
+        puntos: registro.puntos
+      })
+    }).catch((error) => {
+      console.warn('No se pudo registrar el resultado del duelo en la base de datos:', error);
+    });
+  });
+}
+
+function mostrarResultadoDuelo(ganador){
+  const nombreGanador  = ganador === 'A' ? (datosJugador.nombre || 'Jugador 1') : datosJugador2.nombre;
+  const nombrePerdedor = ganador === 'A' ? datosJugador2.nombre : (datosJugador.nombre || 'Jugador 1');
+
+  elTarjeta.className = 'tarjeta-resultado gano';
+  elIcono.textContent = '🏆';
+  elTitulo.textContent = `¡${nombreGanador} ganó el duelo!`;
+  elPuntos.textContent = '';
+  elDetalle.textContent = '';
+
+  elDetalleDuelo.classList.remove('oculto');
+  elDetalleDuelo.textContent = `🥇 ${nombreGanador}: +50 pts    🥈 ${nombrePerdedor}: −20 pts`;
+
+  const restantes = intentosDisponiblesRestantes();
+  if(restantes > 0){
+    elBtnReintentar.disabled = false;
+    elBtnReintentar.textContent = 'Volver a correr';
+    elDetalleIntentos.textContent = `Te queda${restantes === 1 ? '' : 'n'} ${restantes} intento${restantes === 1 ? '' : 's'} hoy en este reto.`;
+  } else {
+    elBtnReintentar.disabled = true;
+    elBtnReintentar.textContent = 'Sin intentos disponibles';
+    elDetalleIntentos.textContent = 'Alcanzaste el máximo de intentos de hoy en este reto.';
+  }
+
+  elModal.classList.add('visible');
+}
+
+function reiniciarJuegoDuelo(){
+  elDetalleDuelo.classList.add('oculto');
+
+  juegoDuelo.progresoA = 0; juegoDuelo.repeticionesA = 0;
+  juegoDuelo.progresoB = 0; juegoDuelo.repeticionesB = 0;
+  juegoDuelo.tiempoInicioCarrera = 0;
+  juegoDuelo.finalizado = false;
+
+  [deteccionA, deteccionB].forEach(d => { d.estado = 'ABAJO'; d.ySuavizada = null; });
+  calibracionA.reposoY = null; calibracionA.umbralNormalizado = null;
+  calibracionB.reposoY = null; calibracionB.umbralNormalizado = null;
+
+  elRellenoJug.style.width = '0%';   elPctJug.textContent = '0%';
+  elRellenoJug2.style.width = '0%';  elPctJug2.textContent = '0%';
+  actualizarPosicionCorredor(elKarateka, 0);
+  actualizarPosicionCorredor(elKarateka2, 0);
+  elCronometro.textContent = '00:00';
+
+  iniciarCalibracionDuelo();
+}
+
 </script>
 </body>
 </html>
