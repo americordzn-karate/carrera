@@ -36,7 +36,8 @@
   #video{
     position:absolute;inset:0;
     width:100%;height:100%;
-    object-fit:cover;
+    object-fit:contain; /* muestra todo el campo de visión que ve el detector, sin recortar */
+    background:#000;
     transform:scaleX(-1); /* efecto espejo para el jugador */
   }
   #capa-pista{
@@ -257,7 +258,8 @@ const CONFIG = {
   PUNTOS_GANAR: 20,
   PUNTOS_PERDER: -10,
   ELEVACION_CM: 6,           // diferencia de altura entre ambos pies (cm reales) para contar un paso
-  FRACCION_ALTURA_REF: 0.9,  // distancia nariz-tobillo ≈ 90% de la estatura
+  FRACCION_ALTURA_REF: 0.5,  // distancia cadera-tobillo ≈ 50% de la estatura
+  ALTURA_MIN_NORM: 0.15,     // cadera-pies mínimo (fracción del alto de imagen); menos = muy lejos
   MARGEN_RETORNO: 0.4,       // fracción del umbral para considerar "ambos pies abajo"
   INTERVALO_MIN_PASOS_MS: 120,
   CALIBRACION_MS: 4000,
@@ -400,7 +402,7 @@ const juego = {
 };
 
 // ---------- 6. Landmarks de los pies ----------
-const IDX_NARIZ = 0;
+const CADERA_IZQ = 23, CADERA_DER = 24;
 const PIE_IZQ = [27, 29, 31]; // tobillo, talón, punta
 const PIE_DER = [28, 30, 32];
 
@@ -451,7 +453,7 @@ function iniciarCalibracion(){
   reiniciarDeteccion();
   elTextoEstado.textContent = 'Calibrando…';
   mostrarMensajeCentral('mensaje-calibracion',
-    'Colócate de pie, de frente, con el cuerpo completo (hasta los pies) visible.<br>Mantente quieto para calibrar…');
+    'Colócate de pie, de frente, a unos 2 metros.<br>Deben verse tus caderas y tus pies.<br>Mantente quieto para calibrar…');
 
   if(TECLADO){ // modo prueba sin cámara
     calibracion.activa = false;
@@ -468,19 +470,26 @@ function reiniciarDeteccion(){
   deteccion.ultimoPasoMs = 0;
 }
 
+// Y promedio de ambas caderas (null si no se ven)
+function yDeCaderas(landmarks){
+  const a = landmarks[CADERA_IZQ], b = landmarks[CADERA_DER];
+  if(!a || !b || a.visibility < CONFIG.VISIBILIDAD_MIN || b.visibility < CONFIG.VISIBILIDAD_MIN) return null;
+  return (a.y + b.y) / 2;
+}
+
 function procesarCalibracion(landmarks){
   const ahora = performance.now();
-  const nariz = landmarks ? landmarks[IDX_NARIZ] : null;
+  const caderaY = landmarks ? yDeCaderas(landmarks) : null;
   const yIzq = landmarks ? yDelPie(landmarks, PIE_IZQ) : null;
   const yDer = landmarks ? yDelPie(landmarks, PIE_DER) : null;
-  const valido = nariz && nariz.visibility >= CONFIG.VISIBILIDAD_MIN && yIzq !== null && yDer !== null;
+  const valido = caderaY !== null && yIzq !== null && yDer !== null;
 
   if(valido){
     calibracion.ultimaMuestraValida = ahora;
-    calibracion.muestras.push({ narizY: nariz.y, yIzq, yDer });
+    calibracion.muestras.push({ caderaY, yIzq, yDer });
   } else if(ahora - calibracion.ultimaMuestraValida > 2500){
     mostrarMensajeCentral('mensaje-calibracion',
-      'No veo tus pies completos.<br>Aléjate del teléfono hasta que se vea tu cuerpo entero.');
+      'No veo tus caderas y pies.<br>Aléjate un poco hasta que se vean de la cadera hacia abajo.');
     calibracion.tiempoInicio = ahora; // reinicia el conteo hasta que se vea bien
     calibracion.muestras = [];
     return;
@@ -490,7 +499,7 @@ function procesarCalibracion(landmarks){
     const transcurrido = ahora - calibracion.tiempoInicio;
     const restanteSeg = Math.max(0, Math.ceil((CONFIG.CALIBRACION_MS - transcurrido) / 1000));
     mostrarMensajeCentral('mensaje-calibracion',
-      `Colócate de pie, de frente, con el cuerpo completo visible.<br>Mantente quieto para calibrar… (${restanteSeg}s)`);
+      `Colócate de pie, de frente, con caderas y pies visibles.<br>Mantente quieto para calibrar… (${restanteSeg}s)`);
 
     if(transcurrido >= CONFIG.CALIBRACION_MS && calibracion.muestras.length >= CONFIG.CALIBRACION_MIN_MUESTRAS){
       finalizarCalibracion();
@@ -499,16 +508,16 @@ function procesarCalibracion(landmarks){
 }
 
 function finalizarCalibracion(){
-  const narizY = mediaRecortada(calibracion.muestras.map(m => m.narizY));
-  const piesY  = mediaRecortada(calibracion.muestras.map(m => (m.yIzq + m.yDer) / 2));
-  const alturaNorm = piesY - narizY; // altura nariz-pies en unidades normalizadas (0-1)
+  const caderaY = mediaRecortada(calibracion.muestras.map(m => m.caderaY));
+  const piesY   = mediaRecortada(calibracion.muestras.map(m => (m.yIzq + m.yDer) / 2));
+  const alturaNorm = piesY - caderaY; // distancia cadera-pies en unidades normalizadas (0-1)
 
   // Si la persona se ve muy pequeña, el umbral sería poco fiable: pedir que se acerque.
-  if(alturaNorm < 0.25){
+  if(alturaNorm < CONFIG.ALTURA_MIN_NORM){
     calibracion.muestras = [];
     calibracion.tiempoInicio = performance.now();
     mostrarMensajeCentral('mensaje-calibracion',
-      'Te veo muy lejos.<br>Acércate un poco al teléfono (pies visibles) y mantente quieto…');
+      'Te veo muy lejos.<br>Acércate un poco al teléfono (caderas y pies visibles) y mantente quieto…');
     return;
   }
 
@@ -896,15 +905,18 @@ async function iniciarCamara(){
     return;
   }
   try{
-    const vertical = window.innerHeight > window.innerWidth;
+    // Se pide siempre formato horizontal (campo de visión completo del sensor).
+    // Pedir formato vertical hace que el teléfono recorte la imagen (efecto zoom).
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'user',
-        width:  { ideal: vertical ? 720 : 1280 },
-        height: { ideal: vertical ? 1280 : 720 }
-      },
+      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
       audio: false
     });
+    // Si la cámara soporta zoom, se lleva al mínimo (máxima apertura).
+    try{
+      const pista = stream.getVideoTracks()[0];
+      const cap = pista.getCapabilities ? pista.getCapabilities() : {};
+      if(cap.zoom) await pista.applyConstraints({ advanced: [{ zoom: cap.zoom.min }] });
+    }catch(e){ /* no todas las cámaras permiten ajustar el zoom */ }
     elVideo.srcObject = stream;
     await new Promise((resolve) => {
       if(elVideo.readyState >= 1) resolve(); else elVideo.onloadedmetadata = resolve;
