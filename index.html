@@ -257,7 +257,7 @@ const CONFIG = {
   CONEJO_TIEMPO_MAX: 40,     // segundos máximos
   PUNTOS_GANAR: 20,
   PUNTOS_PERDER: -10,
-  ELEVACION_CM: 3,           // diferencia de altura entre ambos pies (cm reales) para contar un paso
+  ELEVACION_CM: 2,           // diferencia de altura entre ambos pies (cm reales) para contar un paso
   FRACCION_ALTURA_REF: 0.5,  // distancia cadera-tobillo ≈ 50% de la estatura
   ALTURA_MIN_NORM: 0.15,     // cadera-pies mínimo (fracción del alto de imagen); menos = muy lejos
   MARGEN_RETORNO: 0.4,       // fracción del umbral para considerar "ambos pies abajo"
@@ -528,7 +528,7 @@ function finalizarCalibracion(){
   const alturaRefCm = datosJugador.estatura * CONFIG.FRACCION_ALTURA_REF;
   const normPorCm = alturaNorm / alturaRefCm;
   const umbral = CONFIG.ELEVACION_CM * normPorCm;
-  calibracion.umbral = Math.min(0.08, Math.max(0.008, umbral));
+  calibracion.umbral = Math.min(0.08, Math.max(0.005, umbral));
 
   iniciarCuentaRegresiva();
 }
