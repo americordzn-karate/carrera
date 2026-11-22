@@ -907,15 +907,29 @@ async function iniciarCamara(){
   try{
     // Se pide siempre formato horizontal (campo de visión completo del sensor).
     // Pedir formato vertical hace que el teléfono recorte la imagen (efecto zoom).
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false
-    });
+    // Los modos 16:9 de muchas cámaras frontales recortan el sensor (zoom).
+    // Se prueba primero 4:3 (sensor completo, campo de visión más amplio).
+    const intentos = [
+      { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 }, aspectRatio: { ideal: 4/3 } },
+      { facingMode: 'user', width: { ideal: 640 },  height: { ideal: 480 }, aspectRatio: { ideal: 4/3 } },
+      { facingMode: 'user' }
+    ];
+    let stream = null;
+    for(const video of intentos){
+      try{ stream = await navigator.mediaDevices.getUserMedia({ video, audio: false }); break; }
+      catch(e){ console.warn('Configuración de cámara rechazada, probando otra:', e); }
+    }
+    if(!stream) throw new Error('No se pudo abrir la cámara');
+
     // Si la cámara soporta zoom, se lleva al mínimo (máxima apertura).
     try{
       const pista = stream.getVideoTracks()[0];
       const cap = pista.getCapabilities ? pista.getCapabilities() : {};
       if(cap.zoom) await pista.applyConstraints({ advanced: [{ zoom: cap.zoom.min }] });
+      if(DEBUG){
+        const s = pista.getSettings();
+        elDebug.textContent = `cámara ${s.width}x${s.height} zoom:${s.zoom ?? 'n/d'} (rango ${cap.zoom ? cap.zoom.min + '-' + cap.zoom.max : 'n/d'})`;
+      }
     }catch(e){ /* no todas las cámaras permiten ajustar el zoom */ }
     elVideo.srcObject = stream;
     await new Promise((resolve) => {
